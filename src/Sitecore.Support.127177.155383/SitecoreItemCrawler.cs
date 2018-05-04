@@ -214,6 +214,17 @@ namespace Sitecore.Support.ContentSearch
             }
         }
 
+        #region Fix For 96740
+        protected override void UpdateDependents(IProviderUpdateContext context, SitecoreIndexableItem indexable)
+        {
+            foreach (var uniqueId in GetIndexingDependencies(indexable).Where(i => !this.IsExcludedFromIndex(i, true)))
+            {
+                if (!this.CircularReferencesIndexingGuard.IsInProcessedList(uniqueId, this, context))
+                    this.Update(context, uniqueId);
+            }
+        }
+        #endregion
+
         public virtual void Delete(IProviderUpdateContext context, IIndexableUniqueId indexableUniqueId, IndexingOptions indexingOptions = IndexingOptions.Default)
         {
             if (!ShouldStartIndexing(indexingOptions))
