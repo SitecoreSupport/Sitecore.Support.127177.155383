@@ -12,7 +12,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Sitecore.Support</RootNamespace>
-    <AssemblyName>Sitecore.Support.127177.155383</AssemblyName>
+    <AssemblyName>Sitecore.Support.96740.127177.155383</AssemblyName>
     <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <UseIISExpress>true</UseIISExpress>
     <IISExpressSSLPort />
@@ -63,9 +63,6 @@
   <ItemGroup>
     <Compile Include="ContentSearch\SitecoreItemCrawler.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="App_Config\Include\zzz\Sitecore.Support.127177.155383.config" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

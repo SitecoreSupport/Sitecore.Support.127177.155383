@@ -67,7 +67,8 @@ namespace Sitecore.Support.ContentSearch
                 }
 
                 Item[] versions;
-                using (new SitecoreCachesDisabler())
+                // Sitecore.Support.155383. Switched from SitecoreCachesDisabler() to WriteCachesDisabler()
+                using (new WriteCachesDisabler())
                 {
                   versions = !latestVersion.IsFallback
                       ? latestVersion.Versions.GetVersions(false)
@@ -126,34 +127,40 @@ namespace Sitecore.Support.ContentSearch
       return indexable;
     }
 
+    // Sitecore.Support.127177. LanguageFallback context was added to take the index language fallback configuration into account.
     protected override SitecoreIndexableItem GetIndexableAndCheckDeletes(IIndexableUniqueId indexableUniqueId)
     {
-      ItemUri itemUri = indexableUniqueId as SitecoreItemUniqueId;
-
-      using (new SecurityDisabler())
+      using (new LanguageFallbackItemSwitcher(index.EnableItemLanguageFallback))
       {
-        Item item;
-        using (new WriteCachesDisabler())
-        {
-          item = GetItem(itemUri);
-        }
+        ItemUri itemUri = indexableUniqueId as SitecoreItemUniqueId;
 
-        if (item != null)
+        using (new SecurityDisabler())
         {
-          var latestItemUri = new ItemUri(itemUri.ItemID, itemUri.Language, Sitecore.Data.Version.Latest, itemUri.DatabaseName);
-          var latestItem = GetItem(latestItemUri);
-
-          Sitecore.Data.Version[] versions;
+          Item item;
           using (new WriteCachesDisabler())
           {
-            versions = latestItem.Versions.GetVersionNumbers() ?? new Sitecore.Data.Version[0];
+            item = GetItem(itemUri);
           }
 
-          if (itemUri.Version != Sitecore.Data.Version.Latest && versions.All(v => v.Number != itemUri.Version.Number))
-            item = null;
-        }
+          if (item != null)
+          {
+            var latestItemUri = new ItemUri(itemUri.ItemID, itemUri.Language, Sitecore.Data.Version.Latest,
+              itemUri.DatabaseName);
+            var latestItem = GetItem(latestItemUri);
 
-        return item;
+            Sitecore.Data.Version[] versions;
+            using (new WriteCachesDisabler())
+            {
+              versions = latestItem.Versions.GetVersionNumbers() ?? new Sitecore.Data.Version[0];
+            }
+
+            if (itemUri.Version != Sitecore.Data.Version.Latest &&
+                versions.All(v => v.Number != itemUri.Version.Number))
+              item = null;
+          }
+
+          return item;
+        }
       }
     }
 
@@ -302,12 +309,75 @@ namespace Sitecore.Support.ContentSearch
       }
     }
 
+    #region Fix For 96740
+    protected override void UpdateDependents(IProviderUpdateContext context, SitecoreIndexableItem indexable)
+    {
+      foreach (var uniqueId in GetIndexingDependencies(indexable).Where(i => !this.IsExcludedFromIndex(i, true)))
+      {
+        if (!this.CircularReferencesIndexingGuard.IsInProcessedList(uniqueId, this, context))
+          this.Update(context, uniqueId);
+      }
+    }
+    #endregion
+
     public override void Delete(IProviderUpdateContext context, IIndexableUniqueId indexableUniqueId, IndexingOptions indexingOptions = IndexingOptions.Default)
     {
-      base.Delete(context, indexableUniqueId, indexingOptions);
+      //base.Delete(context, indexableUniqueId, indexingOptions);
+      // Extract from Base and patch below to fix 127177
+
+      if (!ShouldStartIndexing(indexingOptions))
+        return;
+
+      context.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:deleteitem", this.index.Name, indexableUniqueId);
+      this.Operations.Delete(indexableUniqueId, context);
+
+      var deleteDependencies = this.GetIndexablesToUpdateOnDelete(indexableUniqueId);
+      var deleteDependencyIndexables = deleteDependencies.Select(this.GetIndexable).Where(i => i != null);
+
+      IndexEntryOperationContext operationContext = new IndexEntryOperationContext
+      {
+        NeedUpdateAllLanguages = false,
+        NeedUpdateAllVersions = false,
+        NeedUpdateChildren = false
+      };
+
+      // Sitecore.Support.127177. Takes into account LanguageFallback configuration of the index.
       if (context.Index.EnableItemLanguageFallback)
       {
+        this.DoUpdateFallbackField(context, indexableUniqueId);
+        foreach (var deleteDependencyIndexable in deleteDependencyIndexables)
+        {
+          this.DoUpdate(context, deleteDependencyIndexable, operationContext);
+        }
+
         this.DeleteFallbackItem(indexableUniqueId, context);
+      }
+    }
+
+    private void DoUpdateFallbackField(IProviderUpdateContext context, IIndexableUniqueId indexableUniqueId)
+    {
+      var indexableItem = this.GetIndexable(indexableUniqueId) as SitecoreIndexableItem;
+      if (indexableItem == null)
+      {
+        return;
+      }
+      indexableItem.Item.Fields.ReadAll();
+      var fields = indexableItem.Item.Fields;
+      if (fields.Any(e => e.SharedLanguageFallbackEnabled))
+      {
+        var fallbackItems = this.GetDependentLanguages(indexableItem.Item.Language, indexableItem.Item.Database, indexableItem.Item.ID)
+          .SelectMany(
+            language =>
+            {
+              var item1 = indexableItem.Item.Database.GetItem(indexableItem.Item.ID, language);
+              return item1 != null ? item1.Versions.GetVersions() : new Item[0];
+            });
+
+        foreach (var fallbackItem in fallbackItems)
+        {
+          var valueToConsider = new SitecoreItemUniqueId(fallbackItem.Uri);
+          this.Update(context, valueToConsider);
+        }
       }
     }
 
