@@ -30,53 +30,72 @@ namespace Sitecore.Support.ContentSearch
                 }
                 else
                 {
-                    object[] objArray2 = new object[] { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
-                    base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updatingitem", objArray2);
-                    if (!this.IsExcludedFromIndex(indexable, true))
+                    using (new LanguageFallbackFieldSwitcher(this.Index.EnableFieldLanguageFallback))
                     {
-                        if ((operationContext != null) && !operationContext.NeedUpdateAllVersions)
+                        object[] objArray2 = new object[]
+                            { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
+                        base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updatingitem", objArray2);
+                        if (!this.IsExcludedFromIndex(indexable, true))
                         {
-                            this.UpdateItemVersion(context, (Item)indexable, operationContext);
-                        }
-                        else
-                        {
-                            foreach (Language language in ((operationContext != null) && !operationContext.NeedUpdateAllLanguages) ? new Language[] { indexable.Item.Language } : indexable.Item.Languages)
+                            if ((operationContext != null) && !operationContext.NeedUpdateAllVersions)
                             {
-                                Item item;
-                                using (new WriteCachesDisabler())
+                                this.UpdateItemVersion(context, (Item)indexable, operationContext);
+                            }
+                            else
+                            {
+                                foreach (Language language in ((operationContext != null) &&
+                                                               !operationContext.NeedUpdateAllLanguages)
+                                    ? new Language[] { indexable.Item.Language }
+                                    : indexable.Item.Languages)
                                 {
-                                    using (new SecurityDisabler())
-                                    {
-                                        item = indexable.Item.Database.GetItem(indexable.Item.ID, language, Data.Version.Latest);
-                                    }
-                                }
-                                if (item == null)
-                                {
-                                    CrawlingLog.Log.Warn(string.Format("SitecoreItemCrawler : Update : Latest version not found for item {0}. Skipping.", indexable.Item.Uri), null);
-                                }
-                                else
-                                {
-                                    Item[] itemArray;
-                                    // Sitecore.Support.155383. Switched from SitecoreCachesDisabler() to WriteCachesDisabler()
+                                    Item item;
                                     using (new WriteCachesDisabler())
                                     {
-                                        itemArray = !item.IsFallback ? item.Versions.GetVersions(false) : new Item[] { item };
+                                        using (new SecurityDisabler())
+                                        {
+                                            item = indexable.Item.Database.GetItem(indexable.Item.ID, language,
+                                                Data.Version.Latest);
+                                        }
                                     }
-                                    foreach (Item item2 in itemArray)
+
+                                    if (item == null)
                                     {
-                                        this.UpdateItemVersion(context, item2, operationContext);
+                                        CrawlingLog.Log.Warn(
+                                            string.Format(
+                                                "SitecoreItemCrawler : Update : Latest version not found for item {0}. Skipping.",
+                                                indexable.Item.Uri), null);
+                                    }
+                                    else
+                                    {
+                                        Item[] itemArray;
+                                        // Sitecore.Support.155383. Switched from SitecoreCachesDisabler() to WriteCachesDisabler()
+                                        using (new WriteCachesDisabler())
+                                        {
+                                            itemArray = !item.IsFallback
+                                                ? item.Versions.GetVersions(false)
+                                                : new Item[] { item };
+                                        }
+
+                                        foreach (Item item2 in itemArray)
+                                        {
+                                            this.UpdateItemVersion(context, item2, operationContext);
+                                        }
                                     }
                                 }
                             }
+
+                            object[] objArray3 = new object[]
+                                { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
+                            base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updateditem", objArray3);
                         }
-                        object[] objArray3 = new object[] { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
-                        base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updateditem", objArray3);
-                    }
-                    if (base.DocumentOptions.ProcessDependencies)
-                    {
-                        object[] objArray4 = new object[] { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
-                        base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updatedependents", objArray4);
-                        this.UpdateDependents(context, indexable);
+
+                        if (base.DocumentOptions.ProcessDependencies)
+                        {
+                            object[] objArray4 = new object[]
+                                { base.index.Name, indexable.UniqueId, indexable.AbsolutePath };
+                            base.Index.Locator.GetInstance<IEvent>().RaiseEvent("indexing:updatedependents", objArray4);
+                            this.UpdateDependents(context, indexable);
+                        }
                     }
                 }
             }
