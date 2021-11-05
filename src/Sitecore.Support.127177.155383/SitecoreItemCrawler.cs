@@ -6,6 +6,8 @@ using Sitecore.Data.Items;
 using Sitecore.Diagnostics;
 using System;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Sitecore.Data;
 using Sitecore.Data.Managers;
@@ -74,6 +76,7 @@ namespace Sitecore.Support.ContentSearch
                                             itemArray = !item.IsFallback
                                                 ? item.Versions.GetVersions(false)
                                                 : new Item[] { item };
+                                            DeleteUnusedFallbackVersion(item, context);
                                         }
 
                                         foreach (Item item2 in itemArray)
@@ -98,6 +101,25 @@ namespace Sitecore.Support.ContentSearch
                         }
                     }
                 }
+            }
+        }
+
+        private static readonly MethodInfo prepareIndexableVersionMethodInfo =
+            typeof(Sitecore.ContentSearch.SitecoreItemCrawler).GetMethod("PrepareIndexableVersion",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private void DeleteUnusedFallbackVersion(Item version, IProviderUpdateContext context)
+        {
+            if (LanguageFallbackItemSwitcher.CurrentValue == true &&
+                !version.LanguageFallbackEnabled &&
+                version.RuntimeSettings.TemporaryVersion)
+            {
+                if (prepareIndexableVersionMethodInfo == null)
+                {
+                    CrawlingLog.Log.Error("[Sitecore.Support.96740.127177.155383] Could not find method PrepareIndexableVersion");
+                    return;
+                }
+                Operations.Delete((IIndexable)prepareIndexableVersionMethodInfo.Invoke(this, new object[] {version, context}), context);
             }
         }
 
